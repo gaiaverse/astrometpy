@@ -71,9 +71,6 @@ def fit_object(isource):
     ts=ts[sort].astype(float)
     phis=np.hstack(sl['angles']).flatten()[sort].astype(float)
 
-    # ts = np.array([t for t in ts])
-    # phis = np.array([phi for phi in phis])
-
     trueRacs,trueDecs=astromet.track(ts,params)
 
     # Need to change this to total magnitude
