@@ -1,7 +1,12 @@
-import sys, os, numpy as np
+import sys, os
+os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=4
+os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = "1" # export NUMEXPR_NUM_THREADS=6
 
 sys.path.append('../')
-import tqdm, astromet, h5py, astropy, scipy
+import tqdm, astromet, h5py, astropy, scipy, numpy as np
 import astropy.units as u
 from multiprocessing import Pool
 
@@ -31,9 +36,11 @@ config['data_dir'] = '/data/asfe2/Projects/testscanninglaw'
 dr3_sl=scanninglaw.times.Times(version='dr3_nominal')
 
 
+
+
 # Run fits
 results = {}
-def fit_object(isource):
+def fit_object(isource, return_dict=False):
 
     params=astromet.params()
 
@@ -69,19 +76,25 @@ def fit_object(isource):
     gaia_output=astromet.gaia_results(fitresults)
 
     gaia_output['system_id'] = gums['system_id'][isource]
-    gaia_output['phot_g_mean_mag'] = gums['phot_g_mean_mag'][isource]
-    gaia_output['flipped'] = gums['flipped'][isource]
 
     # global results
     # for key in gaia_output.keys():
     #     try: results[key].append(gaia_output[key])
     #     except KeyError: results[key] = [gaia_output[key]]
 
-    return gaia_output
+    if return_dict: return gaia_output
+
+    output = []
+    for key in gaia_keys:
+        output.append(gaia_output[key])
+
+    return np.array(output)
 
 
-isources = np.argwhere(gums['unresolved']|~gums['binary'])[:,0]
+isources = np.argwhere(gums['unresolved']|~gums['binary'])[:100,0]
 
+gaia_keys = fit_object(isources[0], return_dict=True).keys()
+print(gaia_keys)
 
 # def fit_object(isource):
 #     print(isource)
@@ -92,27 +105,27 @@ isources = np.argwhere(gums['unresolved']|~gums['binary'])[:,0]
 #results = {'system_id':[], 'phot_g_mean_mag':[]}
 
 # Parallel
-# with Pool(2) as pool:
-#     pool_output = tqdm.tqdm(pool.imap(fit_object, isources), total=len(isources))
-# for gaia_output in pool_output:
-#     for key in gaia_output.keys():
-#         try: results[key].append(gaia_output[key])
-#         except KeyError: results[key] = [gaia_output[key]]
+with Pool(2) as pool:
+    pool_output = tqdm.tqdm(pool.map(fit_object, isources), total=len(isources))
+for gaia_output in pool_output:
+    for key in gaia_keys:
+        try: results[key].append(gaia_output[key])
+        except KeyError: results[key] = [gaia_output[key]]
 
 
 # Serial
-for isource in tqdm.tqdm(isources, total=len(isources)):
-    gaia_output = fit_object(isource)
-    for key in gaia_output.keys():
-        try: results[key].append(gaia_output[key])
-        except KeyError: results[key] = [gaia_output[key]]
+# for isource in tqdm.tqdm(isources, total=len(isources)):
+#     gaia_output = fit_object(isource)
+#     for key in gaia_output.keys():
+#         try: results[key].append(gaia_output[key])
+#         except KeyError: results[key] = [gaia_output[key]]
 
 
 
 
 
 # Save results
-save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_singlesandunresolved.h'
+save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_singlesandunresolved_parallel.h'
 with h5py.File(save_file, 'w') as f:
     for key in results.keys():
         f.create_dataset(key, data=results[key])
