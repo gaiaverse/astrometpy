@@ -1,40 +1,26 @@
 import sys, os, numpy as np
 
 sys.path.append('../')
-import tqdm, astromet, h5py, astropy
+import tqdm, astromet, h5py, astropy, scipy
+import astropy.units as u
 from multiprocessing import Pool
 
 # Load data
-
-
-gums_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_sample.h'
+gums_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_sample_reparameterised.h'
 with h5py.File(gums_file, 'r') as f:
     gums = {}
     for key in f.keys():
         gums[key] = f[key][...]
 
 
-# Transform variables
-gums['parallax'] = 1e3/gums['barycentric_distance']
-gums['period'] = gums.pop('orbit_period')/astromet.T # years
-gums['l'] = 10**(0.4*(gums['primary_mag_g']-gums['secondary_mag_g']))
-gums['q'] = gums['secondary_mass']/gums['primary_mass']
-gums['a'] = gums.pop('semimajor_axis')
-gums['e'] = gums.pop('eccentricity')
-gums['vtheta'] = np.arccos(-1+2*np.random.rand(gums['system_id'].size))#gums['periastron_argument']
-gums['vphi'] = 2*np.pi*np.random.rand(gums['system_id'].size)#gums['longitude_ascending_node']
-gums['vomega'] = 2*np.pi*np.random.rand(gums['system_id'].size)#gums['inclination']
-gums['tperi'] = gums['periastron_date']
-
-gums['phot_g_mean_mag'] = np.where(gums['binary'], np.log10(10**(-gums['primary_mag_g']/2.5) + 10**(-gums['secondary_mag_g']/2.5)),
-                                                   gums['primary_mag_g'])
-
-max_proj_sep = gums['a']*gums['parallax']*(1+gums['e'])*np.cos(gums['vtheta'])
-gums['unresolved']=np.flatnonzero((gums['binary']==True) & (max_proj_sep<180) & (gums['period']<30)) # unresolved binaries
-
-gums['flipped'] = np.flatnonzero(gums['l']>1)
-gums['l'][gums['flipped']] = 1/gums['l'][gums['flipped']]
-gums['q'][gums['flipped']] = 1/gums['q'][gums['flipped']]
+# Get Earth barycenter
+times = np.linspace(2014.6, 2017.5,100000)
+print('Getting earth barycenter coordiantes...')
+pos_earth = astropy.coordinates.get_body_barycentric('earth', astropy.time.Time(times, format='jyear'), ephemeris="de430")
+pos_earth =  np.array([pos_earth.x.to(u.AU) / u.AU,
+                     pos_earth.y.to(u.AU) / u.AU,
+                     pos_earth.z.to(u.AU) / u.AU]).T
+pos_earth_interp = scipy.interpolate.interp1d(times, pos_earth.T, bounds_error=False, fill_value=0.)
 
 
 # Load scanning law
@@ -44,16 +30,16 @@ from scanninglaw.config import config
 config['data_dir'] = '/data/asfe2/Projects/testscanninglaw'
 dr3_sl=scanninglaw.times.Times(version='dr3_nominal')
 
+
 # Run fits
 results = {}
 def fit_object(isource):
 
     params=astromet.params()
 
-    #print(gums['ra'].shape, gums['ra'][isource][0], type(gums['ra'][isource]))
-
-    for key in ['ra','dec','pmra','pmdec','parallax']:
+    for key in ['ra','dec','pmdec','parallax']:
         setattr(params, key, gums[key][isource])
+        params.pmrac = gums['pmra'][isource]
     if gums['binary'][isource]:
         # Binaries
         for key in ['period','l','q','a','e',
@@ -63,6 +49,9 @@ def fit_object(isource):
         # Single sources - no binary motion
         setattr(params, 'a', 0)
 
+    if params.e==0:
+        params.e+=1e-10
+
     #c = Source(params.ra,params.dec,unit='deg',frame='icrs')
     c = Source(float(params.ra),float(params.dec),unit='deg',frame='icrs')
     sl=dr3_sl(c, return_times=True, return_angles=True)
@@ -71,13 +60,12 @@ def fit_object(isource):
     ts=ts[sort].astype(float)
     phis=np.hstack(sl['angles']).flatten()[sort].astype(float)
 
-    trueRacs,trueDecs=astromet.track(ts,params)
+    trueRacs,trueDecs=astromet.track(ts,params,earth_barycenter=pos_earth_interp)
 
-    # Need to change this to total magnitude
     al_err = astromet.sigma_ast(gums['phot_g_mean_mag'][isource])
     t_obs,x_obs,phi_obs,rac_obs,dec_obs=astromet.mock_obs(ts,phis,trueRacs,trueDecs,err=al_err)
 
-    fitresults=astromet.fit(t_obs,x_obs,phi_obs,al_err,params.ra,params.dec)
+    fitresults=astromet.fit(t_obs,x_obs,phi_obs,al_err,params.ra,params.dec, earth_barycenter=pos_earth_interp)
     gaia_output=astromet.gaia_results(fitresults)
 
     gaia_output['system_id'] = gums['system_id'][isource]
@@ -92,7 +80,8 @@ def fit_object(isource):
     return gaia_output
 
 
-isources = np.argwhere(gums['unresolved'])[:1000,0]
+isources = np.argwhere(gums['unresolved']|~gums['binary'])[:,0]
+
 
 # def fit_object(isource):
 #     print(isource)
@@ -123,7 +112,7 @@ for isource in tqdm.tqdm(isources, total=len(isources)):
 
 
 # Save results
-save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits.h'
+save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_singlesandunresolved.h'
 with h5py.File(save_file, 'w') as f:
     for key in results.keys():
         f.create_dataset(key, data=results[key])

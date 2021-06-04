@@ -32,6 +32,8 @@ mags=sigma_al_data[0]
 sigma_als=sigma_al_data[1]
 sigma_ast = scipy.interpolate.interp1d(mags, sigma_als, bounds_error=False)
 
+get_earth_barycenter = lambda time: astropy.coordinates.get_body_barycentric('earth', astropy.time.Time(time, format='jyear'))
+
 # ----------------
 # -User functions
 # ----------------
@@ -78,7 +80,7 @@ def Delta(ps):
     ps.Delta = np.abs(ps.q-ps.l)/((1+ps.q)*(1+ps.l))
     return ps.Delta
 
-def track(ts, ps, comOnly=False, allComponents=False):
+def track(ts, ps, comOnly=False, allComponents=False, earth_barycenter=None):
     """
     Astrometric track in RAcos(Dec) and Dec [mas] for a given binary
     Args:
@@ -90,7 +92,7 @@ def track(ts, ps, comOnly=False, allComponents=False):
         - racs      ndarry - RAcosDec at each time, mas
         - decs      ndarry - Dec at each time, mas
     """
-    xij = design_matrix(ts, np.deg2rad(ps.ra), np.deg2rad(ps.dec), epoch=ps.epoch)
+    xij = design_matrix(ts, np.deg2rad(ps.ra), np.deg2rad(ps.dec), epoch=ps.epoch, earth_barycenter=earth_barycenter)
 
     r5d = np.array([ps.drac, ps.ddec, ps.parallax, ps.pmrac, ps.pmdec])
     dracs, ddecs = xij@r5d # all in mas
@@ -116,7 +118,7 @@ def track(ts, ps, comOnly=False, allComponents=False):
 # ----------------
 
 
-def design_matrix(ts, ra, dec, phis=None, epoch=2016.0):
+def design_matrix(ts, ra, dec, phis=None, epoch=2016.0, earth_barycenter=None):
     """
     design_matrix - Design matrix for ra,dec source track
     Args:
@@ -128,7 +130,7 @@ def design_matrix(ts, ra, dec, phis=None, epoch=2016.0):
         - design, ndarry - Design matrix
     """
     # Barycentric coordinates of Gaia at time t
-    bs = barycentricPosition(ts)
+    bs = barycentricPosition(ts, earth_barycenter=earth_barycenter)
     # unit vector in direction of increasing ra - the local west unit vector
     p0 = np.array([-np.sin(ra), np.cos(ra), 0])
     # unit vector in direction of increasing dec - the local north unit vector
@@ -190,11 +192,15 @@ def design_1d(ts, phis, ra, dec, epoch=2016.0):
     return design'''
 
 
-def barycentricPosition(time):
-    pos = astropy.coordinates.get_body_barycentric('earth', astropy.time.Time(time, format='jyear'))
-    xs = pos.x.value  # all in AU
-    ys = pos.y.value
-    zs = pos.z.value
+def barycentricPosition(time, earth_barycenter=None):
+    if earth_barycenter==None:
+        pos = astropy.coordinates.get_body_barycentric('earth', astropy.time.Time(time, format='jyear'))
+        xs = pos.x.value  # all in AU
+        ys = pos.y.value
+        zs = pos.z.value
+    else:
+        xs, ys, zs = earth_barycenter(time)
+
     # gaia satellite is at Earth-Sun L2
     l2corr = 1+np.power(earth_sun_mass_ratio/3, 1/3)
     return l2corr*np.vstack([xs, ys, zs]).T

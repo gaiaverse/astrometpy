@@ -157,7 +157,7 @@ def mock_obs(ts, phis, racs, decs, err=0, nmeasure=9):
     return ts,xs,phis,racs,decs
 
 
-def fit(ts, xs, phis, xerr, ra, dec, G=12, epoch=2016.0):
+def fit(ts, xs, phis, xerr, ra, dec, G=12, epoch=2016.0, earth_barycenter=None):
     """
     Iterative optimization to fit astrometric solution in AGIS (outer iteration).
     Lindegren 2012.
@@ -190,7 +190,7 @@ def fit(ts, xs, phis, xerr, ra, dec, G=12, epoch=2016.0):
         results['params_solved']=5
 
     # Design matrix
-    design = design_matrix(ts,np.deg2rad(ra),np.deg2rad(dec),phis=phis,epoch=epoch)
+    design = design_matrix(ts,np.deg2rad(ra),np.deg2rad(dec),phis=phis,epoch=epoch,earth_barycenter=earth_barycenter)
 
     r5d_mean, r5d_cov, R, aen, weights = fit_model(xs, xerr, design, prior=prior)
 
