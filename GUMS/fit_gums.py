@@ -20,7 +20,7 @@ with h5py.File(gums_file, 'r') as f:
 
 # Get Earth barycenter
 times = np.linspace(2014.6, 2017.5,100000)
-print('Getting earth barycenter coordiantes...')
+print('Getting earth barycenter coordinates...')
 pos_earth = astropy.coordinates.get_body_barycentric('earth', astropy.time.Time(times, format='jyear'), ephemeris="de430")
 pos_earth =  np.array([pos_earth.x.to(u.AU) / u.AU,
                      pos_earth.y.to(u.AU) / u.AU,
@@ -59,9 +59,11 @@ def fit_object(isource, return_dict=False):
     if params.e==0:
         params.e+=1e-10
 
-    #c = Source(params.ra,params.dec,unit='deg',frame='icrs')
     c = Source(float(params.ra),float(params.dec),unit='deg',frame='icrs')
     sl=dr3_sl(c, return_times=True, return_angles=True)
+    # sl = {'times': [np.array([2016,2016.5,2017]), np.array([2016,2016.5,2017])],
+    #       'angles': [np.array([10.,50.,70.]), np.array([10.,50.,70.])]}
+
     ts=2010+np.hstack(sl['times']).flatten()/365.25
     sort=np.argsort(ts)
     ts=ts[sort].astype(float)
@@ -72,10 +74,20 @@ def fit_object(isource, return_dict=False):
     al_err = astromet.sigma_ast(gums['phot_g_mean_mag'][isource])
     t_obs,x_obs,phi_obs,rac_obs,dec_obs=astromet.mock_obs(ts,phis,trueRacs,trueDecs,err=al_err)
 
+    # EDR3
     fitresults=astromet.fit(t_obs,x_obs,phi_obs,al_err,params.ra,params.dec, earth_barycenter=pos_earth_interp)
-    gaia_output=astromet.gaia_results(fitresults)
+    gaiaedr3_output=astromet.gaia_results(fitresults)
 
+    # DR2
+    subset = t_obs<2016.391467761807
+    fitresults=astromet.fit(t_obs[subset],x_obs[subset],phi_obs[subset],al_err,params.ra,params.dec, earth_barycenter=pos_earth_interp)
+    gaiadr2_output=astromet.gaia_results(fitresults)
+
+    gaia_output = {}
     gaia_output['system_id'] = gums['system_id'][isource]
+    for key in gaiadr2_output.keys():
+        gaia_output[key+'_dr2'] = gaiadr2_output[key]
+        gaia_output[key+'_edr3'] = gaiaedr3_output[key]
 
     # global results
     # for key in gaia_output.keys():
@@ -88,10 +100,10 @@ def fit_object(isource, return_dict=False):
     for key in gaia_keys:
         output.append(gaia_output[key])
 
-    return np.array(output)
+    return output
 
 
-isources = np.argwhere(gums['unresolved']|~gums['binary'])[:100,0]
+isources = np.argwhere(gums['unresolved']|~gums['binary'])[:,0]
 
 gaia_keys = fit_object(isources[0], return_dict=True).keys()
 print(gaia_keys)
@@ -105,12 +117,12 @@ print(gaia_keys)
 #results = {'system_id':[], 'phot_g_mean_mag':[]}
 
 # Parallel
-with Pool(2) as pool:
-    pool_output = tqdm.tqdm(pool.map(fit_object, isources), total=len(isources))
+with Pool(40) as pool:
+    pool_output = list(tqdm.tqdm(pool.imap(fit_object, isources), total=len(isources)))
 for gaia_output in pool_output:
-    for key in gaia_keys:
-        try: results[key].append(gaia_output[key])
-        except KeyError: results[key] = [gaia_output[key]]
+    for i, key in enumerate(gaia_keys):
+        try: results[key].append(gaia_output[i])
+        except KeyError: results[key] = [gaia_output[i]]
 
 
 # Serial
@@ -125,7 +137,7 @@ for gaia_output in pool_output:
 
 
 # Save results
-save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_singlesandunresolved_parallel.h'
+save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_unresolved_dr2&3.h'
 with h5py.File(save_file, 'w') as f:
     for key in results.keys():
         f.create_dataset(key, data=results[key])
