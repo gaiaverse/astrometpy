@@ -55,7 +55,7 @@ sys_id, multiplicity = np.unique(systems, return_counts=True)
 single_source = np.intersect1d(np.array(gums['source_extended_id'], dtype='S17'),
                                sys_id[multiplicity==1], return_indices=True)[1]
 
-star_keys = ['mass','mag_g','mag_bp','mag_rp','mag_rvs','teff','logg','radius','vsini','variability_type','variability_amplitude','variability_period','variability_phase']
+star_keys = ['mass','mag_g','mag_bp','mag_rp','mag_rvs','teff','logg','radius','vsini','variability_type','variability_amplitude','variability_period','variability_phase','spectral_type']
 system_keys = ['ra','dec','barycentric_distance','pmra','pmdec','radial_velocity','population','age','feh','alphafe']
 orbit_keys = ['semimajor_axis','eccentricity','inclination','longitude_ascending_node','orbit_period','periastron_date','periastron_argument']
 singles = {'system_id':np.array(gums['source_extended_id'], dtype='S17')[single_source]}

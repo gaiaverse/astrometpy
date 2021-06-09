@@ -9,6 +9,7 @@ sys.path.append('../')
 import tqdm, astromet, h5py, astropy, scipy, numpy as np
 import astropy.units as u
 from multiprocessing import Pool
+from functools import partial
 
 # Load data
 gums_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_sample_reparameterised.h'
@@ -39,8 +40,7 @@ dr3_sl=scanninglaw.times.Times(version='dr3_nominal')
 
 
 # Run fits
-results = {}
-def fit_object(isource, return_dict=False):
+def fit_object(isource, return_dict=False, component='unresolved'):
 
     params=astromet.params()
 
@@ -52,6 +52,11 @@ def fit_object(isource, return_dict=False):
         for key in ['period','l','q','a','e',
                   'vtheta','vphi','vomega','tperi']:
             setattr(params, key, gums[key][isource])
+        if component=='primary':
+            params.l = 0.
+        if component=='secondary':
+            params.l = 0.
+            params.q = 1/params.q
     else:
         # Single sources - no binary motion
         setattr(params, 'a', 0)
@@ -89,6 +94,9 @@ def fit_object(isource, return_dict=False):
         gaia_output[key+'_dr2'] = gaiadr2_output[key]
         gaia_output[key+'_edr3'] = gaiaedr3_output[key]
 
+    if component=='primary': gaia_output['system_id']+=b'A'
+    elif component=='secondary': gaia_output['system_id']+=b'B'
+
     # global results
     # for key in gaia_output.keys():
     #     try: results[key].append(gaia_output[key])
@@ -102,11 +110,38 @@ def fit_object(isource, return_dict=False):
 
     return output
 
-
-isources = np.argwhere(gums['unresolved']|~gums['binary'])[:,0]
-
-gaia_keys = fit_object(isources[0], return_dict=True).keys()
+results = {}
+gaia_keys = fit_object(0, return_dict=True).keys()
 print(gaia_keys)
+for key in gaia_keys: results[key] = []
+
+ncores=2
+
+# Resolved binaries - Primary component
+isources = np.argwhere(~gums['unresolved']&gums['binary'])[:,0]
+with Pool(ncores) as pool:
+    pool_output = list(tqdm.tqdm(pool.imap(partial(fit_object, component='primary'), isources), total=len(isources)))
+for gaia_output in pool_output:
+    for i, key in enumerate(gaia_keys):
+        results[key].append(gaia_output[i])
+
+# Resolved binaries - Secondary component
+isources = np.argwhere(~gums['unresolved']&gums['binary'])[:,0]
+with Pool(ncores) as pool:
+    pool_output = list(tqdm.tqdm(pool.imap(partial(fit_object, component='secondary'), isources), total=len(isources)))
+for gaia_output in pool_output:
+    for i, key in enumerate(gaia_keys):
+        results[key].append(gaia_output[i])
+
+# Unresolved binaries
+isources = np.argwhere(gums['unresolved']|~gums['binary'])[:,0]
+with Pool(ncores) as pool:
+    pool_output = list(tqdm.tqdm(pool.imap(fit_object, isources), total=len(isources)))
+for gaia_output in pool_output:
+    for i, key in enumerate(gaia_keys):
+        results[key].append(gaia_output[i])
+
+
 
 # def fit_object(isource):
 #     print(isource)
@@ -115,15 +150,6 @@ print(gaia_keys)
 #     except KeyError: results['a'] = [isource]
 #     results['b'] = 20
 #results = {'system_id':[], 'phot_g_mean_mag':[]}
-
-# Parallel
-with Pool(40) as pool:
-    pool_output = list(tqdm.tqdm(pool.imap(fit_object, isources), total=len(isources)))
-for gaia_output in pool_output:
-    for i, key in enumerate(gaia_keys):
-        try: results[key].append(gaia_output[i])
-        except KeyError: results[key] = [gaia_output[i]]
-
 
 # Serial
 # for isource in tqdm.tqdm(isources, total=len(isources)):
@@ -137,7 +163,7 @@ for gaia_output in pool_output:
 
 
 # Save results
-save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_unresolved_dr2&3.h'
+save_file = '/data/vault/asfe2/Conferences/EDR3_workshop/gums_fits_dr2&3.h'
 with h5py.File(save_file, 'w') as f:
     for key in results.keys():
         f.create_dataset(key, data=results[key])

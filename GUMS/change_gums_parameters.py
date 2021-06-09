@@ -24,7 +24,7 @@ gums['phot_g_mean_mag'] = np.where(gums['binary'], -2.5*np.log10(10**(-gums['pri
                                                    gums['primary_mag_g'])
 
 max_proj_sep = gums['a']*gums['parallax']*(1+gums['e'])*np.cos(gums['vtheta'])
-gums['unresolved']=(gums['binary']==True) & (max_proj_sep<180) & (gums['period']<30) # unresolved binaries
+gums['unresolved']=(gums['binary']==True) & (max_proj_sep<180) # unresolved binaries
 
 gums['flipped'] = (gums['l']>1)
 gums['l'][gums['flipped']] = 1/gums['l'][gums['flipped']]
