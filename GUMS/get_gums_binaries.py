@@ -64,7 +64,8 @@ for key in star_keys:
   singles['primary_'+key] = gums[key][single_source]
   singles['secondary_'+key] = np.zeros(len(single_source))+np.nan
 
-for key in system_keys:
+for key in system_keys:m
+
   singles[key] = gums[key][single_source]
 
 for key in orbit_keys:
